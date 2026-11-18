@@ -1,0 +1,148 @@
+linkEdmHits: ./edmTestFiles/digi_output_nu1.edm4hep.root
+truthParticlesDf                   1 rows, 22 columns  <- digi_output_nu1.edm4hep.root.truthParticlesDf.parquet
+vtxBarrelSimHitsDf       empty table (digi_output_nu1.edm4hep.root.vtxBarrelSimHitsDf.parquet) -> skipped
+vtxClusterToSimHitDf         450,164 rows,  8 columns  <- digi_output_nu1.edm4hep.root.vtxClusterToSimHitDf.parquet
+vtxClustersDf                417,723 rows, 29 columns  <- digi_output_nu1.edm4hep.root.vtxClustersDf.parquet
+vtxPixelsToClustersDf      3,682,367 rows,  8 columns  <- digi_output_nu1.edm4hep.root.vtxPixelsToClustersDf.parquet
+vtxPixelsDf                3,682,367 rows, 23 columns  <- digi_output_nu1.edm4hep.root.vtxPixelsDf.parquet
+truthParticlesDf2                  1 rows, 22 columns  <- digi_output_nu1.edm4hep.root.truthParticlesDf2.parquet
+vtxBarrelSimHitsDf2          533,500 rows, 27 columns  <- digi_output_nu1.edm4hep.root.vtxBarrelSimHitsDf2.parquet
+
+== 1. tables, collection IDs, object keys ==
+truthParticlesDf         events 1 | collectionID -> ['MCParticles']
+vtxClusterToSimHitDf     events 1 | collectionID -> ['VXDBarrelRealHitsRelations']
+vtxClustersDf            events 1 | collectionID -> ['VXDBarrelRealHits']
+vtxPixelsToClustersDf    events 1 | collectionID -> ['VXDBarrelRealRawHitRelations']
+vtxPixelsDf              events 1 | collectionID -> ['VXDBarrelRealPixels']
+truthParticlesDf2        events 1 | collectionID -> ['NewMCParticles']
+vtxBarrelSimHitsDf2      events 1 | collectionID -> ['OverlayVertexBarrelCollection']
+
+== particle references in vtxBarrelSimHitsDf2 ==
+particle references: {} | unset (-1): 533,500 of 533,500
+signal hits: 0, with unset particle: 0 | overlay hits: 533,500, with unset particle: 533,500
+
+== 2. cluster -> sim hit links (vtxClusterToSimHitDf -> vtxBarrelSimHitsDf2) ==
+link ends point into: ['OverlayVertexBarrelCollection', 'VXDBarrelRealHits']
+links resolved: 450,164 of 450,164
+weights: {1.0: 450164}
+sim hits per cluster:  {'0': 0, '1': 392535, '2': 21264, '3': 2801, '4': 617, '5+': 506}
+clusters per sim hit:  {'0': 107839, '1': 424360, '2': 1055, '3': 5, '4': 5, '5+': 236}
+max sim hits per cluster 102 | max clusters per sim hit 327
+distance cluster<->sim hit [mm], all links  (median, 90%, 99%, max): [0.006, 0.064, 13.736, 33.046]
+                         one-to-one links  (median, 99%, max):      [0.005, 0.022, 1.152]
+links further apart than 10 mm: 9,683 (2.15%)
+cluster and sim hit have the same cellID in 98.1% of links
+
+== 3. cluster -> pixel links (vtxPixelsToClustersDf) ==
+link ends point into: ['VXDBarrelRealHits', 'VXDBarrelRealPixels']
+every pixel link end is a row of vtxPixelsDf
+pixels with an unset MC particle: 100.0%
+pixel indices per event are contiguous: {0: 3682367}
+pixels per cluster: median 6 | mean 8.8 | max 6529 (kept) | clusters with no pixel link: 0
+pixel<->sim hit pairs implied through the clusters: 8,257,780 (not materialised); pixels in clusters with more than one sim hit (truth ambiguous): 787,899 of 3,682,367
+
+== 4. sim hits without a cluster (vtxBarrelSimHitsDf2) ==
+sim hits 533,500 | linked 425,661 | unlinked 107,839 (20.2%)
+by overlay flag:
+linked    False    True     All
+overlay                        
+True     107839  425661  533500
+All      107839  425661  533500
+fraction linked by path length in the sensor [mm]:
+              n_hits  frac_linked
+pathLength                       
+(-inf, 0.02]   18807        0.018
+(0.02, 0.05]   16012        0.007
+(0.05, 0.08]  231278        0.941
+(0.08, 0.12]  121422        0.873
+(0.12, 0.2]    84859        0.727
+(0.2, 0.5]     53022        0.656
+(0.5, inf]      8100        0.639
+linked fraction per cellID (485 sensors): min 0.69, median 0.79, max 0.86; sensors with nothing linked: 0
+
+== 5. odd objects ==
+nothing is dropped or capped: all 417,723 clusters and 533,500 sim hits are kept; the lists below only report large or odd ones
+sim hits feeding >= 20 clusters: 205
+top 10 sim hits by number of clusters:
+        ievent   index      eDep  pathLength      time  overlay    cellID  n_clusters  max_dist_to_cluster_mm
+17958        0   17958  0.000015    0.069278  0.016781     True  16785409         327               33.045540
+60550        0   60550  0.000061    0.191028  0.109820     True  50429953         289               21.331634
+60549        0   60549  0.000081    0.260760  0.079608     True  50430081         278               21.310838
+244801       0  244801  0.000013    0.051790  0.275927     True  50380801         272               23.394836
+244796       0  244796  0.000018    0.071918  0.122132     True  33603713         263               23.106176
+60720        0   60720  0.000017    0.065201 -0.011079     True  16859265         260               18.482979
+60714        0   60714  0.000036    0.095690 -0.010115     True  33636481         256               18.538646
+60712        0   60712  0.000019    0.077688  0.046751     True  33636481         255               18.961898
+244800       0  244800  0.000013    0.062766  0.268396     True  50380929         248               25.758856
+244797       0  244797  0.000026    0.059467  0.131073     True  33603585         246               19.921358
+clusters made from >= 20 sim hits: 21
+top 10 clusters by number of sim hits:
+        ievent   index    cellID      eDep  n_pixels  n_sim_hits  n_signal_sim_hits  max_dist_to_sim_mm
+6609         0    6609  50331649  0.026935      6529         102                  0           15.903182
+84068        0   84068  50413569  0.027629      5346         102                  0           13.096686
+30218        0   30218  50356225  0.024460      5618         101                  0            9.690271
+39131        0   39131  67141633  0.011507      2125          43                  0            8.608744
+128085       0  128085  16777345  0.011292      2512          39                  0           16.539038
+81993        0   81993  33636353  0.012633      2080          34                  0            5.971605
+133133       0  133133  50331777  0.011616      3659          34                  0           22.878339
+75480        0   75480  33628161  0.007511      1883          32                  0            7.952349
+76664        0   76664  50405377  0.009313      2025          29                  0            7.058947
+110028       0  110028  67215361  0.005128      1189          29                  0            7.665168
+top 10 clusters by number of pixels:
+        ievent   index    cellID      eDep  n_pixels  n_sim_hits  n_signal_sim_hits  max_dist_to_sim_mm
+6609         0    6609  50331649  0.026935      6529         102                  0           15.903182
+30218        0   30218  50356225  0.024460      5618         101                  0            9.690271
+84068        0   84068  50413569  0.027629      5346         102                  0           13.096686
+133133       0  133133  50331777  0.011616      3659          34                  0           22.878339
+128085       0  128085  16777345  0.011292      2512          39                  0           16.539038
+39131        0   39131  67141633  0.011507      2125          43                  0            8.608744
+81993        0   81993  33636353  0.012633      2080          34                  0            5.971605
+76664        0   76664  50405377  0.009313      2025          29                  0            7.058947
+75480        0   75480  33628161  0.007511      1883          32                  0            7.952349
+29463        0   29463  50356225  0.007896      1794          20                  0            7.916432
+clusters with a sim hit more than 10 mm away: 9566
+top 10 by distance:
+       ievent  index  cellID          eDep  n_pixels  n_sim_hits  n_signal_sim_hits  max_dist_to_sim_mm
+10481       0  10481    8193  3.179354e-06         3           1                  0           33.045540
+10430       0  10430    8193  3.103217e-06         3           1                  0           32.918139
+9949        0   9949    8193  1.557629e-06         1           1                  0           32.844138
+10484       0  10484    8193  5.103162e-06         1           1                  0           32.790738
+10487       0  10487    8193  1.184129e-06         1           1                  0           32.741403
+10488       0  10488    8193  9.726695e-07         1           1                  0           32.692071
+10143       0  10143    8193  5.738297e-05        14           2                  0           32.656217
+9887        0   9887    8193  1.927840e-06         2           1                  0           32.498932
+10491       0  10491    8193  2.289725e-06         1           1                  0           32.387930
+10496       0  10496    8193  3.781988e-06         1           1                  0           32.285196
+
+== 6. row pointers in the saved tables ==
+vtxClusterSimHitLinksDf: cluster_row and sim_row verified for all 450,164 links; vtxPixelsDfLinked.cluster_row verified for 3,682,367 pixels
+
+== 7. saved tables and how they link ==
+row number = 0-based position in the saved table (use .iloc); valid while the tables are not re-sorted or filtered
+key        = (ievent, index): 'index' restarts at 0 in every event, it is NOT a row number
+tables:
+  vtxClustersDfLinked           417,723 rows  vtxClustersDf + n_sim_hits, n_signal_sim_hits, n_overlay_sim_hits, max_dist_to_sim_mm, n_pixels
+  vtxBarrelSimHitsDf2Linked     533,500 rows  vtxBarrelSimHitsDf2 + n_clusters, linked, max_dist_to_cluster_mm
+  vtxClusterSimHitLinksDf       450,164 rows  one row per cluster <-> sim hit link (a cluster can have many sim hits, a sim hit can feed many clusters)
+  vtxPixelsDfLinked           3,682,367 rows  vtxPixelsDf + cluster_row, cluster_index (every pixel belongs to exactly one cluster; -1 = none)
+pointers (column of table A -> table B):
+  vtxClusterSimHitLinksDf.cluster_row             -> vtxClustersDfLinked  [row number]
+  vtxClusterSimHitLinksDf.sim_row                 -> vtxBarrelSimHitsDf2Linked  [row number]
+  vtxClusterSimHitLinksDf.(ievent, cluster_index) -> vtxClustersDfLinked  [key (ievent, index)]
+  vtxClusterSimHitLinksDf.(ievent, sim_index)     -> vtxBarrelSimHitsDf2Linked  [key (ievent, index)]
+  vtxPixelsDfLinked.cluster_row                   -> vtxClustersDfLinked  [row number (-1 = no cluster)]
+  vtxPixelsDfLinked.(ievent, cluster_index)       -> vtxClustersDfLinked  [key (ievent, index)]
+
+== saving ==
+  vtxClusterSimHitLinksDf: 450,164 rows > csvMaxRows, csv skipped
+saved vtxClusterSimHitLinksDf          450,164 rows  (parquet)
+  vtxPixelsDfLinked: 3,682,367 rows > csvMaxRows, csv skipped
+saved vtxPixelsDfLinked              3,682,367 rows  (parquet)
+  vtxClustersDfLinked: 417,723 rows > csvMaxRows, csv skipped
+saved vtxClustersDfLinked              417,723 rows  (parquet)
+  vtxBarrelSimHitsDf2Linked: 533,500 rows > csvMaxRows, csv skipped
+saved vtxBarrelSimHitsDf2Linked        533,500 rows  (parquet)
+saved table map: digi_output_nu1.edm4hep.root.linkManifest.json
+
+== summary ==
+0 check(s) failed
