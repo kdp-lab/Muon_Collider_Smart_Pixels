@@ -36,7 +36,11 @@ Start the container (bind-mount the data area):
 
 ```bash
 apptainer run -B /ospool/uc-shared/project/futurecolliders/data/ \
+    -B /ospool/uc-shared/public/futurecolliders/gregorypenn/BIB_v9/ \
     /cvmfs/unpacked.cern.ch/ghcr.io/muoncollidersoft/mucoll-sim-ubuntu24:v3.1-amd64
+
+#apptainer run -B /ospool/uc-shared/project/futurecolliders/data/ \
+#    /cvmfs/unpacked.cern.ch/ghcr.io/muoncollidersoft/mucoll-sim-ubuntu24:v3.1-amd64
 ```
 
 Then, **once per container session**:
@@ -107,7 +111,7 @@ Clone MuonCVXDDigitiser inside `mucoll-benchmarks` and **switch to `brr_devel` b
 #cd path/to/mucoll-benchmarks
 git clone https://github.com/rroberts194/MuonCVXDDigitiser.git
 cd MuonCVXDDigitiser
-git switch brr_devel
+git switch save_pixels_real_digi
 pwd
 ```
 
