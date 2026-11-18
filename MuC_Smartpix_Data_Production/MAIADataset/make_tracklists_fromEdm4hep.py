@@ -100,10 +100,10 @@ def addMcToHits(hitDf:pd.DataFrame, eventMcDf:pd.DataFrame):
 def hitDftoTracklistDf(hitDf,flp=0):
     raise ValueError("USE THE VERSION IN THE UTILS CLASS")
 
-def processEdmFileToTrack(file_path):
+def processEdmFileToTrack(file_path,collectionBranch = "VertexBarrelCollection",overlayStr=""):
     with uproot.open(file_path) as f:
         # print( f.keys())
-        vertexEventsDf,eventMcDf = collectionDfFromTree(f)
+        vertexEventsDf,eventMcDf = collectionDfFromTree(f,collectionBranch=collectionBranch)
         # print(vertexEventsDf)
         _,hitDf = collectionDfToFlatHits(vertexEventsDf)
         edm4hepTracksUtils.addDecodedCellId(hitDf)
@@ -118,17 +118,18 @@ def processEdmFileToTrack(file_path):
         tracklistDf = edm4hepTracksUtils.hitDftoTracklistDf(hitDf)
 
         #####saving
-        savePath = file_path+".simhits.csv"
+        savePath = file_path+overlayStr+".simhits.csv"
         hitDf.to_csv(savePath)
         print(f"saved {len(hitDf)} hits to {savePath}")
         
-        savePath = file_path+".tracks.csv"
+        savePath = file_path+overlayStr+".tracks.csv"
         tracklistDf.to_csv(savePath,sep=" ",index=False,float_format=f"%.{float_precision}f")
         print(f"saved {len(tracklistDf)} hits to {savePath}")
         return hitDf,tracklistDf
 
 
 file_list = ["./edmTestFiles/sim_output.edm4hep.root","./edmTestFiles/sim_output2.edm4hep.root","./edmTestFiles/sim_output3.edm4hep.root","./edmTestFiles/digi_real.edm4hep.root","./edmTestFiles/sim_output_mu2.edm4hep.root","./edmTestFiles/digi_output_mu2.edm4hep.root","./edmTestFiles/sim_output_mu1.edm4hep.root","./edmTestFiles/sim_output_nu1.edm4hep.root","./edmTestFiles/sim_output_H1.edm4hep.root",]#"./edmTestFiles/gen_output.edm4hep.root",]
+file_list = file_list + ["./edmTestFiles/digi_output_mu1.edm4hep.root","./edmTestFiles/digi_output_nu1.edm4hep.root","./edmTestFiles/digi_output_H1.edm4hep.root",]
 track_count=0
 break_loop=False
 count = 0
@@ -137,6 +138,7 @@ fileCountLimit = 1000
 filterSecondaries=True
 addMCParticle=True
 float_precision=5
+readBIB = False
 for file_path in file_list:
     if break_loop:
             break
@@ -152,6 +154,9 @@ for file_path in file_list:
         continue
     print("Processing file: ", file_path)
     processEdmFileToTrack(file_path)
+    if readBIB and ("digi_output" in file_path):
+        print("WARNING: not super well tested")
+        processEdmFileToTrack(file_path,collectionBranch="OverlayVertexBarrelCollection",overlayStr=".overlay")
 
 
         #  for 

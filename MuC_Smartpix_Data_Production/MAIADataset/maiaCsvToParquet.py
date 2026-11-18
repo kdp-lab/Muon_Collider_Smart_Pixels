@@ -28,12 +28,22 @@ def convertFileStub(fileStub = "./edmTestFiles/digi_output_mu2.edm4hep.root",con
                 dfDict[key].to_parquet(f"{fileStub}.{key}.parquet",compression="zstd")
             if convertOrc:
                 dfDict[key].to_orc(f"{fileStub}.{key}.orc") #unable to do compression
-            print("converted "+f"{fileStub}.{key}.csv")
+            print("converted "+f"{fileStub}.{key}.csv with {len(dfDict[key])} entries")
+    return dfDict
 
-def main():
-    fileList = ["./edmTestFiles/sim_output.edm4hep.root","./edmTestFiles/sim_output2.edm4hep.root","./edmTestFiles/sim_output3.edm4hep.root","./edmTestFiles/digi_real.edm4hep.root","./edmTestFiles/sim_output_mu2.edm4hep.root","./edmTestFiles/digi_output_mu2.edm4hep.root","./edmTestFiles/sim_output_mu1.edm4hep.root","./edmTestFiles/sim_output_nu1.edm4hep.root","./edmTestFiles/sim_output_H1.edm4hep.root",]#"./edmTestFiles/gen_output.edm4hep.root",]
+def printCounts(fileStub: str, dfDict: dict):
+    print(f'{fileStub} has {len(dfDict["truthParticlesDf"])} signal particles that made {len(dfDict["vtxBarrelSimHitsDf"])} signal simhits in the vertex barrel')
+    print(f'then overlayed with BIB to make {len(dfDict["vtxBarrelSimHitsDf2"])} simhits that made {len(dfDict["vtxClustersDf"])} clusters linked to {len(dfDict["vtxClusterToSimHitDf"])} sim hits')
+    print(f'then turned on {len(dfDict["vtxPixelsDf"])} pixels with {len(dfDict["vtxPixelsToClustersDf"])} links clusters')
+    print(f'same links to pixels as pixels: {len(dfDict["vtxPixelsDf"])==len(dfDict["vtxPixelsToClustersDf"])} ')
+    print(f'{len(dfDict["vtxBarrelSimHitsDf2"])}simhits/{len(dfDict["vtxClusterToSimHitDf"])}simhitLinks-1 = {len(dfDict["vtxBarrelSimHitsDf2"])/len(dfDict["vtxClusterToSimHitDf"])-1} unlinked simhits')
+def main(
+        # fileList = ["./edmTestFiles/sim_output.edm4hep.root","./edmTestFiles/sim_output2.edm4hep.root","./edmTestFiles/sim_output3.edm4hep.root","./edmTestFiles/digi_real.edm4hep.root","./edmTestFiles/sim_output_mu2.edm4hep.root","./edmTestFiles/digi_output_mu2.edm4hep.root","./edmTestFiles/sim_output_mu1.edm4hep.root","./edmTestFiles/sim_output_nu1.edm4hep.root","./edmTestFiles/sim_output_H1.edm4hep.root",]#"./edmTestFiles/gen_output.edm4hep.root",]
+        fileList = ["./edmTestFiles/digi_output_mu1.edm4hep.root","./edmTestFiles/digi_output_nu1.edm4hep.root","./edmTestFiles/digi_output_H1.edm4hep.root",]
+        ):
     for fileStub in fileList:
-        convertFileStub(fileStub)
+        dfDict = convertFileStub(fileStub)
+        printCounts(fileStub, dfDict)
 
 if __name__=="__main__":
     main()

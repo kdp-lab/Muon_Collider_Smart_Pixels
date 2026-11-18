@@ -8,6 +8,9 @@ Run with
 apptainer run /cvmfs/unpacked.cern.ch/ghcr.io/muoncollidersoft/mucoll-sim-ubuntu24\:v3.1-amd64
 source /opt/setup_mucoll.sh
 python make_tracklists_edm4hepContain.py
+#then outside the container
+python maiaCsvToParquet.py
+python linkEdmHits.py ./edmTestFiles/digi_output_[whatever].edm4hep.root
 ```
 """
 
@@ -32,6 +35,7 @@ import pickle
 file_list = ["./edmTestFiles/sim_output.edm4hep.root","./edmTestFiles/sim_output2.edm4hep.root","./edmTestFiles/sim_output3.edm4hep.root","./edmTestFiles/digi_real.edm4hep.root","./edmTestFiles/sim_output_mu2.edm4hep.root","./edmTestFiles/digi_output_mu2.edm4hep.root",]#"./edmTestFiles/gen_output.edm4hep.root",]
 file_list = ["./edmTestFiles/sim_output_mu1.edm4hep.root","./edmTestFiles/sim_output_nu1.edm4hep.root","./edmTestFiles/sim_output_H1.edm4hep.root",]
 file_list = ["./edmTestFiles/digi_output_mu2.edm4hep.root",] + ["./edmTestFiles/sim_output_mu1.edm4hep.root","./edmTestFiles/sim_output_nu1.edm4hep.root","./edmTestFiles/sim_output_H1.edm4hep.root",]
+file_list = ["./edmTestFiles/digi_output_mu1.edm4hep.root","./edmTestFiles/digi_output_nu1.edm4hep.root","./edmTestFiles/digi_output_H1.edm4hep.root",]
 # file_list = ["./edmTestFiles/digi_output_mu2.edm4hep.root",]
 # file_list = ["./edmTestFiles/digi_real.edm4hep.root",]
 track_count=0
