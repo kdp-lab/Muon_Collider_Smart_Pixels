@@ -56,7 +56,7 @@ def main(
         if not file_path.endswith("edm4hep.root"):
             continue
         print("Processing file: ", file_path)
-        processEdmFileToTrack(file_path)
+        processEdmFileToTrack(file_path,filterSecondaries=filterSecondaries,addMCParticle=addMCParticle,float_precision=float_precision)
         if readBIB and ("digi_output" in file_path):
             print("WARNING: not super well tested")
             processEdmFileToTrack(file_path,collectionBranch="OverlayVertexBarrelCollection",overlayStr=".overlay",
