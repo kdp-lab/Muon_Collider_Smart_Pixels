@@ -42,6 +42,13 @@ pixel indices per event are contiguous: {0: 3682376}
 pixels per cluster: median 6 | mean 8.8 | max 6529 (kept) | clusters with no pixel link: 0
 pixel<->sim hit pairs implied through the clusters: 8,257,839 (not materialised); pixels in clusters with more than one sim hit (truth ambiguous): 787,971 of 3,682,376
 
+sim hits that no cluster links to: 107,839 of 533,503 -> vtxBarrelSimHitsDf2Unlinked
+  farther than 1 um from their sensor's measurement plane (skipped by the digitiser's insideBounds check): 107,827 of 107,839 (100.0%)
+  distance to the nearest cluster [mm]: median 0.280 | 10% 0.091 | 90% 0.699
+  within 0.025 mm (one pixel): 0.6% | 0.1 mm: 11.6% | 1 mm: 96.8% | nearest cluster on the same sensor: 97.4%
+
+clusters without a sim hit link: 0 | without a pixel link: 0 -> 0 rows in vtxClustersDfUnlinked
+
 == 4. sim hits without a cluster (vtxBarrelSimHitsDf2) ==
 sim hits 533,503 | linked 425,664 | unlinked 107,839 (20.2%)
 by overlay flag:
@@ -122,16 +129,18 @@ clusters containing a signal sim hit:
 266314       0  266314  67150081  0.000031         4           1                  1            0.007515
 
 == 6. row pointers in the saved tables ==
-vtxClusterSimHitLinksDf: cluster_row and sim_row verified for all 450,167 links; vtxPixelsDfLinked.cluster_row verified for 3,682,376 pixels
+vtxClusterSimHitLinksDf: cluster_row and sim_row verified for all 450,167 links; vtxPixelsDfLinked.cluster_row verified for 3,682,376 pixels; vtxBarrelSimHitsDf2Unlinked.sim_row verified for 107,839 sim hits
 
 == 7. saved tables and how they link ==
 row number = 0-based position in the saved table (use .iloc); valid while the tables are not re-sorted or filtered
 key        = (ievent, index): 'index' restarts at 0 in every event, it is NOT a row number
 tables:
-  vtxClustersDfLinked           417,725 rows  vtxClustersDf + n_sim_hits, n_signal_sim_hits, n_overlay_sim_hits, max_dist_to_sim_mm, n_pixels
-  vtxBarrelSimHitsDf2Linked     533,503 rows  vtxBarrelSimHitsDf2 + n_clusters, linked, max_dist_to_cluster_mm
-  vtxClusterSimHitLinksDf       450,167 rows  one row per cluster <-> sim hit link (a cluster can have many sim hits, a sim hit can feed many clusters)
-  vtxPixelsDfLinked           3,682,376 rows  vtxPixelsDf + cluster_row, cluster_index (every pixel belongs to exactly one cluster; -1 = none)
+  vtxClustersDfLinked             417,725 rows  vtxClustersDf + n_sim_hits, n_signal_sim_hits, n_overlay_sim_hits, max_dist_to_sim_mm, n_pixels
+  vtxBarrelSimHitsDf2Linked       533,503 rows  vtxBarrelSimHitsDf2 + n_clusters, linked, max_dist_to_cluster_mm
+  vtxClusterSimHitLinksDf         450,167 rows  one row per cluster <-> sim hit link (a cluster can have many sim hits, a sim hit can feed many clusters)
+  vtxPixelsDfLinked             3,682,376 rows  vtxPixelsDf + cluster_row, cluster_index (every pixel belongs to exactly one cluster; -1 = none)
+  vtxClustersDfUnlinked                 0 rows  vtxClustersDf rows with no sim hit link and/or no pixel link + cluster_row, no_sim_hit, no_pixel
+  vtxBarrelSimHitsDf2Unlinked     107,839 rows  vtxBarrelSimHitsDf2 rows that no cluster links to + sim_row, nearest_cluster_mm, nearest_cluster_row, nearest_cluster_same_sensor, plane_distance_um
 pointers (column of table A -> table B):
   vtxClusterSimHitLinksDf.cluster_row                -> vtxClustersDfLinked  [row number]
   vtxClusterSimHitLinksDf.sim_row                    -> vtxBarrelSimHitsDf2Linked  [row number]
@@ -139,6 +148,9 @@ pointers (column of table A -> table B):
   vtxClusterSimHitLinksDf.(ievent, sim_index)        -> vtxBarrelSimHitsDf2Linked  [key (ievent, index)]
   vtxPixelsDfLinked.cluster_row                      -> vtxClustersDfLinked  [row number (-1 = no cluster)]
   vtxPixelsDfLinked.(ievent, cluster_index)          -> vtxClustersDfLinked  [key (ievent, index)]
+  vtxClustersDfUnlinked.cluster_row                  -> vtxClustersDfLinked  [row number]
+  vtxBarrelSimHitsDf2Unlinked.sim_row                -> vtxBarrelSimHitsDf2Linked  [row number]
+  vtxBarrelSimHitsDf2Unlinked.nearest_cluster_row    -> vtxClustersDfLinked  [row number (nearest cluster of the same event; -1 = none)]
   vtxBarrelSimHitsDf2Linked.(ievent, particle_index) -> truthParticlesDf2 (input table, not re-saved)  [key (ievent, index); particle_index = -1 means no MC particle (all BIB hits)]
 
 == saving ==
@@ -150,6 +162,8 @@ saved vtxPixelsDfLinked              3,682,376 rows  (parquet)
 saved vtxClustersDfLinked              417,725 rows  (parquet)
   vtxBarrelSimHitsDf2Linked: 533,503 rows > csvMaxRows, csv skipped
 saved vtxBarrelSimHitsDf2Linked        533,503 rows  (parquet)
+saved vtxBarrelSimHitsDf2Unlinked      107,839 rows  (parquet, csv)
+saved vtxClustersDfUnlinked                  0 rows  (parquet, csv)
 saved table map: digi_output_mu1.edm4hep.root.linkManifest.json
 
 == summary ==

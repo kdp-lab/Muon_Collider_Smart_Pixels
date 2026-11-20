@@ -7,7 +7,9 @@
     "simHits": "vtxBarrelSimHitsDf2Linked",
     "clusterSimHitLinks": "vtxClusterSimHitLinksDf",
     "pixels": "vtxPixelsDfLinked",
-    "pixelEdges": null
+    "pixelEdges": null,
+    "unlinkedClusters": "vtxClustersDfUnlinked",
+    "unlinkedSimHits": "vtxBarrelSimHitsDf2Unlinked"
   },
   "tables": {
     "vtxClustersDfLinked": {
@@ -25,6 +27,14 @@
     "vtxPixelsDfLinked": {
       "rows": 3328661,
       "what": "vtxPixelsDf + cluster_row, cluster_index (every pixel belongs to exactly one cluster; -1 = none)"
+    },
+    "vtxClustersDfUnlinked": {
+      "rows": 0,
+      "what": "vtxClustersDf rows with no sim hit link and/or no pixel link + cluster_row, no_sim_hit, no_pixel"
+    },
+    "vtxBarrelSimHitsDf2Unlinked": {
+      "rows": 104643,
+      "what": "vtxBarrelSimHitsDf2 rows that no cluster links to + sim_row, nearest_cluster_mm, nearest_cluster_row, nearest_cluster_same_sensor, plane_distance_um"
     }
   },
   "pointers": [
@@ -63,6 +73,24 @@
       "column": "(ievent, cluster_index)",
       "points_to": "vtxClustersDfLinked",
       "how": "key (ievent, index)"
+    },
+    {
+      "table": "vtxClustersDfUnlinked",
+      "column": "cluster_row",
+      "points_to": "vtxClustersDfLinked",
+      "how": "row number"
+    },
+    {
+      "table": "vtxBarrelSimHitsDf2Unlinked",
+      "column": "sim_row",
+      "points_to": "vtxBarrelSimHitsDf2Linked",
+      "how": "row number"
+    },
+    {
+      "table": "vtxBarrelSimHitsDf2Unlinked",
+      "column": "nearest_cluster_row",
+      "points_to": "vtxClustersDfLinked",
+      "how": "row number (nearest cluster of the same event; -1 = none)"
     },
     {
       "table": "vtxBarrelSimHitsDf2Linked",

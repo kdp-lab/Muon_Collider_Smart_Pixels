@@ -46,6 +46,12 @@ names and row counts of every run)
                                 sim_row     -> row of vtxBarrelSimHitsDf2Linked
                                 (ievent, cluster_index) / (ievent, sim_index) = the same two objects by key
                                 + weight, dist_mm, n_sim_of_cluster, n_clusters_of_sim and copies of a few columns
+  vtxBarrelSimHitsDf2Unlinked  the sim hits that NO cluster links to: sim hit columns + sim_row (row in
+                             vtxBarrelSimHitsDf2Linked) + the nearest cluster of the same event: nearest_cluster_mm
+                             (3D distance to its position), nearest_cluster_row, nearest_cluster_same_sensor
+                             + plane_distance_um: distance of the hit from its sensor's measurement plane. The digitiser
+                             skips hits farther than 1 um from it (DD4hep insideBounds default) - on digi_output_mu1
+                             that is 107,827 of the 107,839 unlinked sim hits
   vtxClustersDfUnlinked      the clusters with no sim hit link and/or no pixel link (cluster columns + cluster_row,
                              no_sim_hit, no_pixel); saved even when empty, so its presence shows the check ran
   vtxPixelClusterEdgesDf     only if there is NO pixel table: one row per pixel with cluster_row / cluster_index
@@ -212,7 +218,7 @@ class EdmHitLinker:
     def linkedName(cls, key, suffix=None):
         """Name of the saved version of a loaded table (<key>Linked, or <key><suffix>)."""
         return f"{key}{cls.OUT_SUFFIX if suffix is None else suffix}"
- 
+
     def nameOf(self, collId):
         return self.idToName.get(int(collId), f"unknown({int(collId)})")
 
@@ -577,6 +583,77 @@ class EdmHitLinker:
     # ------------------------------------------------------------------------------------------
     # the saved tables must agree with each other: use the row numbers like a user would
     # ------------------------------------------------------------------------------------------
+    def unlinkedSimHits(self, simKey, simOut, clOut):
+        """The sim hits that no cluster links to, with their row number in <simhits>Linked and the nearest cluster of the
+        same event (3D distance between the sim hit position and the cluster position). A hit right next to a cluster
+        suggests its link was dropped; a hit far from every cluster suggests its charge never formed a cluster. The
+        distance is to the cluster position, so for a large cluster a hit inside its pixels can still be far away."""
+        sel = ~simOut["linked"].to_numpy()
+        out = simOut.loc[sel].copy()
+        out.insert(0, "sim_row", np.flatnonzero(sel).astype(np.int64))
+        name = self.linkedName(simKey, self.OUT_UNLINKED_SUFFIX)
+        self.log.info("\nsim hits that no cluster links to: %s of %s -> %s", f"{len(out):,}", f"{len(simOut):,}", name)
+        pos3 = ["position.x", "position.y", "position.z"]
+        if not (len(out) and len(clOut) and set(pos3) <= set(simOut.columns) and set(pos3) <= set(clOut.columns)):
+            return out.reset_index(drop=True)
+        try:
+            from scipy.spatial import cKDTree
+        except ImportError:
+            self.log.warning("scipy is not available: the unlinked sim hit table has no nearest-cluster columns")
+            self._addPlaneDistance(out, clOut)
+            return out.reset_index(drop=True)
+        nearRow = np.full(len(out), -1, np.int64)
+        nearD = np.full(len(out), np.nan)
+        hitEv, clEv = out["ievent"].to_numpy(), clOut["ievent"].to_numpy()
+        H, P = out[pos3].to_numpy(dtype=float), clOut[pos3].to_numpy(dtype=float)
+        for ev in np.unique(hitEv):
+            cr, hr = np.flatnonzero(clEv == ev), np.flatnonzero(hitEv == ev)
+            if len(cr):
+                d, j = cKDTree(P[cr]).query(H[hr])
+                nearD[hr], nearRow[hr] = d, cr[j]
+        out["nearest_cluster_mm"] = nearD
+        out["nearest_cluster_row"] = nearRow
+        if "cellID" in out and "cellID" in clOut:
+            ok = nearRow >= 0
+            same = np.zeros(len(out), bool)
+            same[ok] = clOut["cellID"].to_numpy()[nearRow[ok]] == out["cellID"].to_numpy()[ok]
+            out["nearest_cluster_same_sensor"] = same
+        self._addPlaneDistance(out, clOut)
+        d = nearD[np.isfinite(nearD)]
+        if len(d):
+            self.log.info("  distance to the nearest cluster [mm]: median %.3f | 10%% %.3f | 90%% %.3f", np.median(d), *np.quantile(d, [.1, .9]))
+            self.log.info("  within 0.025 mm (one pixel): %.1f%% | 0.1 mm: %.1f%% | 1 mm: %.1f%%%s",
+                          100 * (d <= 0.025).mean(), 100 * (d <= 0.1).mean(), 100 * (d <= 1).mean(),
+                          f" | nearest cluster on the same sensor: {100 * out['nearest_cluster_same_sensor'].mean():.1f}%"
+                          if "nearest_cluster_same_sensor" in out else "")
+        return out.reset_index(drop=True)
+
+    def _addPlaneDistance(self, hits, clOut):
+        """plane_distance_um: signed distance of each sim hit from the measurement plane of its sensor, measured from the
+        clusters on the same cellID (their positions lie on that plane; normal = u x v). NaN if no cluster is on the
+        sensor. The MuonCVXDRealDigitiser (DetElemSlidingWindow::StoreSignalPoints) skips every sim hit for which
+        surface->insideBounds(position) is false, i.e. farther than DD4hep's default tolerance of 1e-4 cm = 1 um from the
+        plane, and only counts them ('SimTrackerHits outside their surface')."""
+        need = {"cellID", "u.a", "u.b", "v.a", "v.b", "position.x", "position.y", "position.z"}
+        if not need <= set(clOut.columns) or not {"cellID", "position.x"} <= set(hits.columns):
+            self.log.info("  (no plane_distance_um: the cluster table lacks %s)", sorted(need - set(clOut.columns)))
+            return
+        vec = lambda th, ph: np.stack([np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)], axis=1)
+        n = np.cross(vec(clOut["u.a"].to_numpy(), clOut["u.b"].to_numpy()), vec(clOut["v.a"].to_numpy(), clOut["v.b"].to_numpy()))
+        P = clOut[["position.x", "position.y", "position.z"]].to_numpy(dtype=float)
+        per = pd.DataFrame({"cellID": clOut["cellID"].to_numpy(), "nx": n[:, 0], "ny": n[:, 1], "nz": n[:, 2],
+                            "d": (P * n).sum(axis=1)}).groupby("cellID").median()
+        ref = per.reindex(hits["cellID"].to_numpy())
+        H = hits[["position.x", "position.y", "position.z"]].to_numpy(dtype=float)
+        dist = 1000 * ((H * ref[["nx", "ny", "nz"]].to_numpy()).sum(axis=1) - ref["d"].to_numpy())
+        hits["plane_distance_um"] = dist
+        ok = np.isfinite(dist)
+        if ok.any():
+            self.log.info("  farther than 1 um from their sensor's measurement plane (skipped by the digitiser's insideBounds "
+                          "check): %s of %s (%.1f%%)%s", f"{int((np.abs(dist[ok]) > 1).sum()):,}", f"{len(hits):,}",
+                          100 * (np.abs(dist[ok]) > 1).sum() / len(hits),
+                          "" if ok.all() else f" | no cluster on the sensor (no distance): {int((~ok).sum()):,}")
+
     def unlinkedClusters(self, clOut):
         """The clusters with no sim hit link and/or no pixel link, with their row number in <clusters>Linked."""
         noSim = clOut["n_sim_hits"].to_numpy() == 0
@@ -590,7 +667,7 @@ class EdmHitLinker:
                       f"{int(noSim.sum()):,}", f"{int(noPix.sum()):,}", "" if "n_pixels" in clOut else " (no pixel links loaded)",
                       f"{len(out):,}", self.linkedName(self.CLUSTERS, self.OUT_UNLINKED_SUFFIX))
         return out.reset_index(drop=True)
- 
+
     def verifyRowPointers(self):
         log = self.log
         log.info("\n== 6. row pointers in the saved tables ==")
@@ -619,6 +696,19 @@ class EdmHitLinker:
                     self.problem(f"{name}.cluster_row does not point at the cluster with the same (ievent, cluster_index)")
                 else:
                     msg += f"; {name}.cluster_row verified for {len(has):,} pixels"
+        unlSim = self.linkedName(self.simKey, self.OUT_UNLINKED_SUFFIX)
+        if unlSim in self.outputs and len(self.outputs[unlSim]):
+            t = self.outputs[unlSim]
+            rows = t["sim_row"].to_numpy()
+            good = np.array_equal(sim["index"].to_numpy()[rows], t["index"].to_numpy()) and \
+                np.array_equal(sim["ievent"].to_numpy()[rows], t["ievent"].to_numpy()) and not sim["linked"].to_numpy()[rows].any()
+            if "nearest_cluster_row" in t:
+                nr = t["nearest_cluster_row"].to_numpy()
+                good &= bool(((nr >= -1) & (nr < len(cl))).all())
+            if not good:
+                self.problem(f"{unlSim}: sim_row / nearest_cluster_row do not point at the right rows")
+            else:
+                msg += f"; {unlSim}.sim_row verified for {len(t):,} sim hits"
         unl = self.linkedName(self.CLUSTERS, self.OUT_UNLINKED_SUFFIX)
         if unl in self.outputs and len(self.outputs[unl]):
             t = self.outputs[unl]
@@ -634,12 +724,15 @@ class EdmHitLinker:
         cl, sim = self.linkedName(self.CLUSTERS), self.linkedName(self.simKey)
         lk, pix, edges = self.OUT_CLUSTER_SIM_LINKS, self.linkedName(self.PIXELS), self.OUT_PIXEL_EDGES
         unl = self.linkedName(self.CLUSTERS, self.OUT_UNLINKED_SUFFIX)
+        unlSim = self.linkedName(self.simKey, self.OUT_UNLINKED_SUFFIX)
         what = {cl: f"{self.CLUSTERS} + n_sim_hits, n_signal_sim_hits, n_overlay_sim_hits, max_dist_to_sim_mm, n_pixels",
                 sim: f"{self.simKey} + n_clusters, linked, max_dist_to_cluster_mm",
                 lk: "one row per cluster <-> sim hit link (a cluster can have many sim hits, a sim hit can feed many clusters)",
                 pix: f"{self.PIXELS} + cluster_row, cluster_index (every pixel belongs to exactly one cluster; -1 = none)",
                 edges: f"one row per pixel and the cluster it belongs to (written because {self.PIXELS} was not loaded)",
-                unl: f"{self.CLUSTERS} rows with no sim hit link and/or no pixel link + cluster_row, no_sim_hit, no_pixel"}
+                unl: f"{self.CLUSTERS} rows with no sim hit link and/or no pixel link + cluster_row, no_sim_hit, no_pixel",
+                unlSim: f"{self.simKey} rows that no cluster links to + sim_row, nearest_cluster_mm, nearest_cluster_row, "
+                        f"nearest_cluster_same_sensor, plane_distance_um"}
         tables = {n: {"rows": int(len(self.outputs[n])), "what": w} for n, w in what.items() if n in self.outputs}
         pointers = []
 
@@ -656,6 +749,8 @@ class EdmHitLinker:
         ptr(edges, "(ievent, cluster_index)", cl, "key (ievent, index)")
         ptr(edges, "(ievent, pixel_index)", f"{self.PIXELS} (not loaded)", "key (ievent, index)")
         ptr(unl, "cluster_row", cl, "row number")
+        ptr(unlSim, "sim_row", sim, "row number")
+        ptr(unlSim, "nearest_cluster_row", cl, "row number (nearest cluster of the same event; -1 = none)")
         sims = self.outputs[sim]
         if "particle_collectionID" in sims:
             ids = set(int(i) for i in sims["particle_collectionID"].unique() if i >= 0)
@@ -667,7 +762,8 @@ class EdmHitLinker:
                         "key (ievent, index); particle_index = -1 means no MC particle (all BIB hits)")
         roles = {"clusters": cl, "simHits": sim, "clusterSimHitLinks": lk,
                  "pixels": pix if pix in self.outputs else None, "pixelEdges": edges if edges in self.outputs else None,
-                 "unlinkedClusters": unl if unl in self.outputs else None}
+                 "unlinkedClusters": unl if unl in self.outputs else None,
+                 "unlinkedSimHits": unlSim if unlSim in self.outputs else None}
         return {"fileStub": self.fileStub,
                 "rowNumber": "0-based position in the saved table (use .iloc); valid while the tables are not re-sorted or filtered",
                 "key": "(ievent, index): 'index' restarts at 0 in every event, it is NOT a row number",
@@ -735,6 +831,7 @@ class EdmHitLinker:
                         log.info("\n%s not loaded: no pixel links", self.PIXEL_CLUSTER_LINKS)
                     self.outputs[self.linkedName(self.CLUSTERS)] = clOut
                     self.outputs[self.linkedName(simKey)] = simOut
+                    self.outputs[self.linkedName(simKey, self.OUT_UNLINKED_SUFFIX)] = self.unlinkedSimHits(simKey, simOut, clOut)
                     self.outputs[self.linkedName(self.CLUSTERS, self.OUT_UNLINKED_SUFFIX)] = self.unlinkedClusters(clOut)
                     self.reportUnlinked(simKey, simOut)
                     self.reportOdd(simKey, clOut, simOut)
