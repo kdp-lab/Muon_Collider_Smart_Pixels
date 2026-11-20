@@ -60,7 +60,7 @@ def main(
         if readBIB and ("digi_output" in file_path):
             print("WARNING: not super well tested")
             processEdmFileToTrack(file_path,collectionBranch="OverlayVertexBarrelCollection",overlayStr=".overlay",
-                                  filterSecondaries=filterSecondaries,addMCParticle=addMCParticle,float_precision=float_pre)
+                                  filterSecondaries=filterSecondaries,addMCParticle=addMCParticle,float_precision=float_precision)
 
 def processEdmFileToTrack(file_path,collectionBranch = "VertexBarrelCollection",overlayStr="",
                           filterSecondaries=True,
