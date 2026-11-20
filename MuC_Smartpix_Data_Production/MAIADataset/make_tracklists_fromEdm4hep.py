@@ -17,8 +17,83 @@ import random
 from datetime import datetime
 import pandas as pd
 import edm4hepTracksUtils
+import glob
 
+def main(
+        file_list = ["./edmTestFiles/sim_output.edm4hep.root","./edmTestFiles/sim_output2.edm4hep.root","./edmTestFiles/sim_output3.edm4hep.root","./edmTestFiles/digi_real.edm4hep.root","./edmTestFiles/sim_output_mu2.edm4hep.root","./edmTestFiles/digi_output_mu2.edm4hep.root","./edmTestFiles/sim_output_mu1.edm4hep.root","./edmTestFiles/sim_output_nu1.edm4hep.root","./edmTestFiles/sim_output_H1.edm4hep.root",],#"./edmTestFiles/gen_output.edm4hep.root",]
+        # file_list = file_list + ["./edmTestFiles/digi_output_mu1.edm4hep.root","./edmTestFiles/digi_output_nu1.edm4hep.root","./edmTestFiles/digi_output_H1.edm4hep.root",]
+        # file_list = ["/local/d1/smartpixML/MaiaBIBNov2026/fedeBib/sim_mp/BIB_sim_100.edm4hep.root"]
+        directory = "/local/d1/smartpixML/MaiaBIBNov2026/fedeBib/sim_mp/",
+        # directory = "/local/d1/smartpixML/MaiaBIBNov2026/fedeBib/sim_mm/"
+        # directory = "/local/d1/smartpixML/MaiaBIBNov2026/gregBib/sim_mp/"
+        # directory = "/local/d1/smartpixML/MaiaBIBNov2026/gregBib/sim_mm/"
+        globStr = "/local/d1/smartpixML/MaiaBIBNov2026/*Bib/sim*/*.root",
+        track_count=0,
+        break_loop=False,
+        count = 0,
+        fileCountStart = 0,
+        fileCountLimit = 1000,
+        filterSecondaries=True,
+        addMCParticle=True,
+        float_precision=5,
+        readBIB = False,
+):
+    if directory is not None:
+            file_list = [entry.path if entry.is_file() else "" for entry in os.scandir(directory)]
+    if globStr is not None:
+        file_list = [filename for filename in glob.iglob(globStr)]
+    for file_path in file_list:
+        if break_loop:
+                break
+        count +=1
+        if count<fileCountStart:
+            continue
+        print("count", count, " ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        if count>fileCountLimit:
+            print("count>fileCountLimit, so breaking")
+            break
+        # Get the full path to the file
+        if not file_path.endswith("edm4hep.root"):
+            continue
+        print("Processing file: ", file_path)
+        processEdmFileToTrack(file_path)
+        if readBIB and ("digi_output" in file_path):
+            print("WARNING: not super well tested")
+            processEdmFileToTrack(file_path,collectionBranch="OverlayVertexBarrelCollection",overlayStr=".overlay",
+                                  filterSecondaries=filterSecondaries,addMCParticle=addMCParticle,float_precision=float_pre)
 
+def processEdmFileToTrack(file_path,collectionBranch = "VertexBarrelCollection",overlayStr="",
+                          filterSecondaries=True,
+                          addMCParticle=True,float_precision=5):
+    """
+    process a single file
+    """
+    with uproot.open(file_path) as f:
+        # print( f.keys())
+        vertexEventsDf,eventMcDf = collectionDfFromTree(f,collectionBranch=collectionBranch)
+        # print(vertexEventsDf)
+        _,hitDf = collectionDfToFlatHits(vertexEventsDf)
+        edm4hepTracksUtils.addDecodedCellId(hitDf)
+        if hitDf.empty:
+            print("this file empty of hits")
+            return None,None
+        if filterSecondaries:
+            # hitDf.filter(cond=hitDf["index"]==0)
+            hitDf.filter(cond=hitDf["particle_index"]==0)
+        if addMCParticle:
+            hitDf = addMcToHits(hitDf,eventMcDf)
+        tracklistDf = edm4hepTracksUtils.hitDftoTracklistDf(hitDf)
+
+        #####saving
+        savePath = file_path+overlayStr+".simhits.csv"
+        hitDf.to_csv(savePath)
+        print(f"saved {len(hitDf)} hits to {savePath}")
+        
+        savePath = file_path+overlayStr+".tracks.csv"
+        tracklistDf.to_csv(savePath,sep=" ",index=False,float_format=f"%.{float_precision}f")
+        print(f"saved {len(tracklistDf)} hits to {savePath}")
+        return hitDf,tracklistDf
+    
 def collectionDfFromTree(f: uproot.reading.ReadOnlyDirectory,collectionBranch = "VertexBarrelCollection",collectionBranchIndex="",mcBranch="MCParticles",getMcDf=True):
     assert isinstance(f,uproot.reading.ReadOnlyDirectory)
     assert ("events;1" in f.keys()) or ("events;2" in f.keys()) or ("events;3" in f.keys())
@@ -100,69 +175,5 @@ def addMcToHits(hitDf:pd.DataFrame, eventMcDf:pd.DataFrame):
 def hitDftoTracklistDf(hitDf,flp=0):
     raise ValueError("USE THE VERSION IN THE UTILS CLASS")
 
-def processEdmFileToTrack(file_path,collectionBranch = "VertexBarrelCollection",overlayStr=""):
-    with uproot.open(file_path) as f:
-        # print( f.keys())
-        vertexEventsDf,eventMcDf = collectionDfFromTree(f,collectionBranch=collectionBranch)
-        # print(vertexEventsDf)
-        _,hitDf = collectionDfToFlatHits(vertexEventsDf)
-        edm4hepTracksUtils.addDecodedCellId(hitDf)
-        if hitDf.empty:
-            print("this file empty of hits")
-            return None,None
-        if filterSecondaries:
-            # hitDf.filter(cond=hitDf["index"]==0)
-            hitDf.filter(cond=hitDf["particle_index"]==0)
-        if addMCParticle:
-            hitDf = addMcToHits(hitDf,eventMcDf)
-        tracklistDf = edm4hepTracksUtils.hitDftoTracklistDf(hitDf)
-
-        #####saving
-        savePath = file_path+overlayStr+".simhits.csv"
-        hitDf.to_csv(savePath)
-        print(f"saved {len(hitDf)} hits to {savePath}")
-        
-        savePath = file_path+overlayStr+".tracks.csv"
-        tracklistDf.to_csv(savePath,sep=" ",index=False,float_format=f"%.{float_precision}f")
-        print(f"saved {len(tracklistDf)} hits to {savePath}")
-        return hitDf,tracklistDf
-
-
-file_list = ["./edmTestFiles/sim_output.edm4hep.root","./edmTestFiles/sim_output2.edm4hep.root","./edmTestFiles/sim_output3.edm4hep.root","./edmTestFiles/digi_real.edm4hep.root","./edmTestFiles/sim_output_mu2.edm4hep.root","./edmTestFiles/digi_output_mu2.edm4hep.root","./edmTestFiles/sim_output_mu1.edm4hep.root","./edmTestFiles/sim_output_nu1.edm4hep.root","./edmTestFiles/sim_output_H1.edm4hep.root",]#"./edmTestFiles/gen_output.edm4hep.root",]
-file_list = file_list + ["./edmTestFiles/digi_output_mu1.edm4hep.root","./edmTestFiles/digi_output_nu1.edm4hep.root","./edmTestFiles/digi_output_H1.edm4hep.root",]
-track_count=0
-break_loop=False
-count = 0
-fileCountStart = 0
-fileCountLimit = 1000
-filterSecondaries=True
-addMCParticle=True
-float_precision=5
-readBIB = False
-for file_path in file_list:
-    if break_loop:
-            break
-    count +=1
-    if count<fileCountStart:
-        continue
-    print("count", count, " ", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-    if count>fileCountLimit:
-        print("count>fileCountLimit, so breaking")
-        break
-    # Get the full path to the file
-    if not file_path.endswith("edm4hep.root"):
-        continue
-    print("Processing file: ", file_path)
-    processEdmFileToTrack(file_path)
-    if readBIB and ("digi_output" in file_path):
-        print("WARNING: not super well tested")
-        processEdmFileToTrack(file_path,collectionBranch="OverlayVertexBarrelCollection",overlayStr=".overlay")
-
-
-        #  for 
-    # reader = pyLCIO.IOIMPL.LCFactory.getInstance().createLCReader()
-    # reader.open(file_path)
-
-    # for ievt,event in enumerate(reader):
-        
-    #     print("Processing event %i."%ievt)
+if __name__=="__main__":
+    main()
