@@ -46,6 +46,8 @@ names and row counts of every run)
                                 sim_row     -> row of vtxBarrelSimHitsDf2Linked
                                 (ievent, cluster_index) / (ievent, sim_index) = the same two objects by key
                                 + weight, dist_mm, n_sim_of_cluster, n_clusters_of_sim and copies of a few columns
+  vtxClustersDfUnlinked      the clusters with no sim hit link and/or no pixel link (cluster columns + cluster_row,
+                             no_sim_hit, no_pixel); saved even when empty, so its presence shows the check ran
   vtxPixelClusterEdgesDf     only if there is NO pixel table: one row per pixel with cluster_row / cluster_index
                              and the pixel's (ievent, pixel_index) key
   vtxBarrelSimHitsDf2Linked.particle_index (+ particle_collectionID) -> the MC particle by key (ievent, index);
@@ -96,14 +98,16 @@ class EdmHitLinker:
     SIMHIT_TABLES = ("vtxBarrelSimHitsDf", "vtxBarrelSimHitsDf2")    # candidates; the one the links point into is chosen by collection ID
 
     # columns copied into the cluster<->sim hit link table
-    DEFAULT_LINKED_CLUSTER_COLS = ("cellID", "eDep", "time", "position.x", "position.y", "position.z")
-    DEFAULT_LINKED_SIM_COLS = ("cellID", "eDep", "time", "pathLength", "overlay", "secondary", "particle_index",
+    DEFAULT_LINKED_CLUSTER_COLS = ("cellID", "cellID.layer", "cellID.module", "cellID.sensor",
+                                   "eDep", "time", "position.x", "position.y", "position.z")    # columns that are missing are skipped
+    DEFAULT_LINKED_SIM_COLS = ("cellID", "cellID.layer", "cellID.module", "cellID.sensor", "eDep", "time", "pathLength", "overlay", "secondary", "particle_index",
                                "MCParticles.PDG", "MCParticles.set")
 
     # names of the saved tables: a loaded table that gets columns is saved as <key><OUT_SUFFIX> (the original
     # files are never overwritten); the link tables are new tables
     OUT_SUFFIX = "Linked"
     OUT_CLUSTER_SIM_LINKS = "vtxClusterSimHitLinksDf"
+    OUT_UNLINKED_SUFFIX = "Unlinked"                 # <clusters>Unlinked: clusters without a sim hit and/or pixel link
     OUT_PIXEL_EDGES = "vtxPixelClusterEdgesDf"       # only written when there is no pixel table to add cluster_row to
     MANIFEST_SUFFIX = "linkManifest.json"
 
@@ -205,10 +209,10 @@ class EdmHitLinker:
         return cls.murmur3_32(name.encode(), 0)
 
     @classmethod
-    def linkedName(cls, key):
-        """Name of the saved version of a loaded table."""
-        return f"{key}{cls.OUT_SUFFIX}"
-
+    def linkedName(cls, key, suffix=None):
+        """Name of the saved version of a loaded table (<key>Linked, or <key><suffix>)."""
+        return f"{key}{cls.OUT_SUFFIX if suffix is None else suffix}"
+ 
     def nameOf(self, collId):
         return self.idToName.get(int(collId), f"unknown({int(collId)})")
 
@@ -519,9 +523,18 @@ class EdmHitLinker:
                  f"{int((~linked).sum()):,}", 100 * (~linked).mean())
         if "overlay" in simOut:
             self.show("by overlay flag:", pd.crosstab(simOut["overlay"], linked.rename("linked"), margins=True))
-            sigUnlinked = int((~simOut["overlay"].astype(bool) & ~linked).sum())
+            sigMask = ~simOut["overlay"].astype(bool) & ~linked
+            sigUnlinked = int(sigMask.sum())
             if sigUnlinked:
                 self.problem(f"{sigUnlinked} signal sim hits have no cluster")
+                cols = [c for c in ["ievent", "index", "cellID.layer", "cellID.module", "cellID.sensor", "eDep", "pathLength",
+                                    "time", "MCParticles.PDG", "MCParticles.generatorStatus"] if c in simOut]
+                details = simOut.loc[sigMask, cols].copy()
+                if {"momentum.x", "momentum.y", "momentum.z"} <= set(simOut.columns):
+                    m = simOut.loc[sigMask, ["momentum.x", "momentum.y", "momentum.z"]].to_numpy()
+                    details["|p| [GeV]"] = np.linalg.norm(m, axis=1)
+                self.show("  the signal sim hits without a cluster (a path length far below the 0.05 mm sensor thickness "
+                          "usually means a soft secondary that left almost no charge):", details)
         if "pathLength" in simOut:
             cut = pd.cut(simOut["pathLength"], list(self.PATH_LENGTH_BINS))
             self.show("fraction linked by path length in the sensor [mm]:",
@@ -564,6 +577,20 @@ class EdmHitLinker:
     # ------------------------------------------------------------------------------------------
     # the saved tables must agree with each other: use the row numbers like a user would
     # ------------------------------------------------------------------------------------------
+    def unlinkedClusters(self, clOut):
+        """The clusters with no sim hit link and/or no pixel link, with their row number in <clusters>Linked."""
+        noSim = clOut["n_sim_hits"].to_numpy() == 0
+        noPix = clOut["n_pixels"].to_numpy() == 0 if "n_pixels" in clOut else np.zeros(len(clOut), bool)
+        sel = noSim | noPix
+        out = clOut.loc[sel].copy()
+        out.insert(0, "cluster_row", np.flatnonzero(sel).astype(np.int64))
+        out["no_sim_hit"] = noSim[sel]
+        out["no_pixel"] = noPix[sel]
+        self.log.info("\nclusters without a sim hit link: %s | without a pixel link: %s%s -> %s rows in %s",
+                      f"{int(noSim.sum()):,}", f"{int(noPix.sum()):,}", "" if "n_pixels" in clOut else " (no pixel links loaded)",
+                      f"{len(out):,}", self.linkedName(self.CLUSTERS, self.OUT_UNLINKED_SUFFIX))
+        return out.reset_index(drop=True)
+ 
     def verifyRowPointers(self):
         log = self.log
         log.info("\n== 6. row pointers in the saved tables ==")
@@ -592,6 +619,13 @@ class EdmHitLinker:
                     self.problem(f"{name}.cluster_row does not point at the cluster with the same (ievent, cluster_index)")
                 else:
                     msg += f"; {name}.cluster_row verified for {len(has):,} pixels"
+        unl = self.linkedName(self.CLUSTERS, self.OUT_UNLINKED_SUFFIX)
+        if unl in self.outputs and len(self.outputs[unl]):
+            t = self.outputs[unl]
+            if not np.array_equal(cl["index"].to_numpy()[t["cluster_row"].to_numpy()], t["index"].to_numpy()):
+                self.problem(f"{unl}.cluster_row does not point at the cluster with the same index")
+            else:
+                msg += f"; {unl}.cluster_row verified for {len(t):,} clusters"
         if not self.problems:
             log.info(msg)
 
@@ -599,11 +633,13 @@ class EdmHitLinker:
         """The saved tables and which column of which table points where (names of this run)."""
         cl, sim = self.linkedName(self.CLUSTERS), self.linkedName(self.simKey)
         lk, pix, edges = self.OUT_CLUSTER_SIM_LINKS, self.linkedName(self.PIXELS), self.OUT_PIXEL_EDGES
+        unl = self.linkedName(self.CLUSTERS, self.OUT_UNLINKED_SUFFIX)
         what = {cl: f"{self.CLUSTERS} + n_sim_hits, n_signal_sim_hits, n_overlay_sim_hits, max_dist_to_sim_mm, n_pixels",
                 sim: f"{self.simKey} + n_clusters, linked, max_dist_to_cluster_mm",
                 lk: "one row per cluster <-> sim hit link (a cluster can have many sim hits, a sim hit can feed many clusters)",
                 pix: f"{self.PIXELS} + cluster_row, cluster_index (every pixel belongs to exactly one cluster; -1 = none)",
-                edges: f"one row per pixel and the cluster it belongs to (written because {self.PIXELS} was not loaded)"}
+                edges: f"one row per pixel and the cluster it belongs to (written because {self.PIXELS} was not loaded)",
+                unl: f"{self.CLUSTERS} rows with no sim hit link and/or no pixel link + cluster_row, no_sim_hit, no_pixel"}
         tables = {n: {"rows": int(len(self.outputs[n])), "what": w} for n, w in what.items() if n in self.outputs}
         pointers = []
 
@@ -619,6 +655,7 @@ class EdmHitLinker:
         ptr(edges, "cluster_row", cl, "row number")
         ptr(edges, "(ievent, cluster_index)", cl, "key (ievent, index)")
         ptr(edges, "(ievent, pixel_index)", f"{self.PIXELS} (not loaded)", "key (ievent, index)")
+        ptr(unl, "cluster_row", cl, "row number")
         sims = self.outputs[sim]
         if "particle_collectionID" in sims:
             ids = set(int(i) for i in sims["particle_collectionID"].unique() if i >= 0)
@@ -629,7 +666,8 @@ class EdmHitLinker:
                     ptr(sim, "(ievent, particle_index)", f"{key} (input table, not re-saved)",
                         "key (ievent, index); particle_index = -1 means no MC particle (all BIB hits)")
         roles = {"clusters": cl, "simHits": sim, "clusterSimHitLinks": lk,
-                 "pixels": pix if pix in self.outputs else None, "pixelEdges": edges if edges in self.outputs else None}
+                 "pixels": pix if pix in self.outputs else None, "pixelEdges": edges if edges in self.outputs else None,
+                 "unlinkedClusters": unl if unl in self.outputs else None}
         return {"fileStub": self.fileStub,
                 "rowNumber": "0-based position in the saved table (use .iloc); valid while the tables are not re-sorted or filtered",
                 "key": "(ievent, index): 'index' restarts at 0 in every event, it is NOT a row number",
@@ -697,6 +735,7 @@ class EdmHitLinker:
                         log.info("\n%s not loaded: no pixel links", self.PIXEL_CLUSTER_LINKS)
                     self.outputs[self.linkedName(self.CLUSTERS)] = clOut
                     self.outputs[self.linkedName(simKey)] = simOut
+                    self.outputs[self.linkedName(self.CLUSTERS, self.OUT_UNLINKED_SUFFIX)] = self.unlinkedClusters(clOut)
                     self.reportUnlinked(simKey, simOut)
                     self.reportOdd(simKey, clOut, simOut)
                     self.verifyRowPointers()
