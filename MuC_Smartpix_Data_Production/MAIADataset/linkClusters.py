@@ -42,19 +42,20 @@ LinkedCluster.row is always the row in the cluster table of the whole file. simH
 tables of ALL sim hits / pixels (a sim hit can belong to clusters inside and outside your selection).
 
 Where is a cluster? (system / side / layer / module / sensor)
-    c.cellFields           {"system": 1, "side": 0, "layer": 0, "module": 3, "sensor": 1}
-    c.cellIDsAgree         True if the cellIDs of the cluster, its sim hits and its pixels all decode to the same fields
+    c.cellFields           {"system": 1, "side": 0, "layer": 0, "module": 3, "sensor": 1}  of the cluster's own cellID
     clusters.cellFields    the same for all clusters at once: {field: array with one value per cluster}
-    clusters.cellIDsAgree  bool array
-  All or nothing: if ANY of those cellIDs decodes differently from the cluster's own, EVERY field of that cluster is
-  set to -1 (change it with mismatchValue=). Clusters without sim hits or pixels are compared on what they have.
-  The sources are the cluster table, the sim hit table and the pixel table; a missing source is an ERROR, not skipped:
-  a table without a 'cellID' column, or no pixel table at all. Choose the sources explicitly with
-  cellSources=("simHits",), ("pixels",) or () (cluster cellID only).
-  CAUTION: -1 is also a real value of a signed field such as 'side' (endcap, negative z): use cellIDsAgree to tell.
+    c.cellIDsAgree         True if the cellIDs of the cluster, its sim hits and its pixels all decode to the same fields
+    clusters.cellIDsAgree  bool array; clusters[clusters.cellIDsAgree] keeps only the clusters where everything agrees
+  cellFields is the location: it always comes from the cluster's own cellID (the pixels of a cluster are counted on this
+  sensor), so it never needs a pixel table or a comparison. cellIDsAgree is the check, all or nothing: one sim hit or
+  pixel that decodes differently in any field makes it False. On digi_output_mu1 it is False for 2.0% of clusters, all
+  because a linked sim hit sits on the neighbouring sensor (no pixel ever disagrees, and layer / module always agree).
+  The comparison uses the cluster table, the sim hit table and the pixel table; a missing source is an ERROR, not
+  skipped: a table without a 'cellID' column, or no pixel table at all. Choose the sources explicitly with
+  cellSources=("simHits",), ("pixels",) or () (then everything agrees).
   How the cellID is cut up comes from the decoder: pass decoder=<callable: array of cellIDs -> {field: array}>
-  (e.g. your own makeDecoder()); the default is cellid_decode.makeDecoder(MAIA_V0_TRACKER_ENCODING) from the file
-  next to this one.
+  (e.g. your own makeDecoder()); the default is makeDecoder(MAIA_V0_TRACKER_ENCODING) from edm4hepTracksUtils.
+  clusters.rows           the row numbers of these clusters in the cluster table (LinkedCluster.row of each)
 
 Whole columns at once (fast): a loop like  [c.simHits["cellID"] for c in clusters]  builds one pandas DataFrame per
 cluster (~45 us each, tens of seconds for ~1M clusters). Ask for the column of ALL clusters instead:
@@ -169,10 +170,8 @@ class LinkedCluster:
 
     @property
     def cellFields(self):
-        """{field: value} decoded from the cellID of the cluster, its sim hits and its pixels. If any of them
-        decodes differently from the cluster's own, every field is mismatchValue (-1)."""
-        v = self._s.collection._cellInfo()["values"]
-        return {k: int(a[self.row]) for k, a in v.items()}
+        """{field: value} of this cluster's own cellID (its location; see cellIDsAgree for the comparison)"""
+        return {k: int(a[self.row]) for k, a in self._s.collection._ownCellInfo().items()}
 
     @property
     def cellIDsAgree(self):
@@ -289,13 +288,14 @@ class _Store:
 class LinkedClusters(Sequence):
     """All clusters of a file as a lazy sequence of LinkedCluster objects."""
 
-    def __init__(self, clusters, simHits, simLinks, pixels=None, pixelEdges=None, decoder=None, mismatchValue=-1,
+    def __init__(self, clusters, simHits, simLinks, pixels=None, pixelEdges=None, decoder=None,
                  cellSources=("simHits", "pixels")):
         """clusters, simHits: the <key>Linked tables; simLinks: vtxClusterSimHitLinksDf (cluster_row, sim_row,
         weight, dist_mm); pixels: vtxPixelsDfLinked (cluster_row); pixelEdges: vtxPixelClusterEdgesDf, used only
-        when there is no pixel table. decoder / mismatchValue: see 'Where is a cluster?' above."""
+        when there is no pixel table. decoder / cellSources: see 'Where is a cluster?' above."""
         s = _Store()
-        s.decoder, s.mismatchValue, s.cellCache, s.cellSources = decoder, mismatchValue, None, tuple(cellSources)
+        s.decoder, s.cellCache, s.cellSources = decoder, None, tuple(cellSources)
+        s.ownCache = None                                    # the decoded cellID of each cluster, see cellFields
         n = len(clusters)
         s.clusters, s.simHits, s.pixels = clusters, simHits, pixels
         s.ievent, s.index = clusters["ievent"].to_numpy(), clusters["index"].to_numpy()
@@ -345,7 +345,7 @@ class LinkedClusters(Sequence):
         raise FileNotFoundError(f"{stub}.{name}.parquet/.csv not found (was it saved by linkEdmHits.py?)")
 
     @classmethod
-    def fromFiles(cls, fileStub, clusterColumns=None, simHitColumns=None, pixelColumns=None, decoder=None, mismatchValue=-1,
+    def fromFiles(cls, fileStub, clusterColumns=None, simHitColumns=None, pixelColumns=None, decoder=None,
                   cellSources=("simHits", "pixels")):
         """Load the tables saved by linkEdmHits.py for fileStub. The *Columns arguments restrict the columns
         that are loaded (to save memory); 'ievent', 'index', 'overlay' and the pointer columns are always loaded,
@@ -365,7 +365,7 @@ class LinkedClusters(Sequence):
             pixels = cls._read(fileStub, roles["pixels"], cols(pixelColumns, ["ievent", "index", "cluster_row"]), optional=["cellID"])
         elif roles.get("pixelEdges"):
             edges = cls._read(fileStub, roles["pixelEdges"], ["cluster_row", "pixel_index"])
-        return cls(clusters, simHits, links, pixels=pixels, pixelEdges=edges, decoder=decoder, mismatchValue=mismatchValue,
+        return cls(clusters, simHits, links, pixels=pixels, pixelEdges=edges, decoder=decoder,
                    cellSources=cellSources)
 
     # ---- sequence ----------------------------------------------------------------------------
@@ -551,23 +551,37 @@ class LinkedClusters(Sequence):
         if "pixels" in s.cellSources:
             compare(s.pixels["cellID"].to_numpy(np.int64)[s.pixRows], s.pixOffsets)
             sources.append("pixels")
-        values = {k: np.where(differs, s.mismatchValue, own[k]) for k in keys}
         agree = ~differs
-        for a in list(values.values()) + [agree]:
-            a.setflags(write=False)
-        s.cellCache = {"values": values, "agree": agree, "sources": tuple(sources)}
+        agree.setflags(write=False)
+        s.cellCache = {"agree": agree, "sources": tuple(sources)}
         return s.cellCache
 
     @property
     def cellFields(self):
-        """{field: array, one value per cluster}; all fields are -1 (mismatchValue) where cluster, sim hits and
-        pixels do not all decode to the same fields"""
-        return {k: self._sel(v) for k, v in self._cellInfo()["values"].items()}
+        """{field: array, one value per cluster} of each cluster's own cellID: its location. Needs only the cluster
+        table and the decoder; the comparison with the sim hits and pixels is cellIDsAgree."""
+        return {k: self._sel(v) for k, v in self._ownCellInfo().items()}
 
     @property
     def cellIDsAgree(self):
         """bool array: True where cluster, sim hits and pixels all decode to the same fields"""
         return self._sel(self._cellInfo()["agree"])
+
+    def _ownCellInfo(self):
+        s = self._s
+        if s.ownCache is None:
+            if "cellID" not in s.clusters:
+                raise RuntimeError("the cluster table has no 'cellID' column")
+            own = self._decodeUnique(self._decoderFn(), s.clusters["cellID"].to_numpy(np.int64))
+            for a in own.values():
+                a.setflags(write=False)
+            s.ownCache = own
+        return s.ownCache
+
+    @property
+    def rows(self):
+        """row numbers of these clusters in the cluster table of the whole file (LinkedCluster.row of each)"""
+        return np.arange(self._s.n, dtype=np.int64) if self._rows is None else self._rows.copy()
 
     @property
     def cellFieldSources(self):
