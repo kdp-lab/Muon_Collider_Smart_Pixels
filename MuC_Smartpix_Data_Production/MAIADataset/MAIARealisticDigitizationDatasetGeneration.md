@@ -417,8 +417,42 @@ cl = LinkedClusters.fromFiles(fileStub)
 ```
 
 TODO: convert these linked clusters to something like the output of pixelav. 
+There is a draft version of this in clusterArrays.py made by Claude, but that's untested
 
-### 4b visualization of things
+### 4b Running pixelav  
+More details about pixelav are in Eliza's documentation, I don't seek to reproduce a full accounting of her data generations scripts here, just the minimum necessary to run pixelav from the output of step 4a. 
+
+Pixelav takes in tracklists that were generated as part of launchDataProduction.py. The .tracklistDF.csv and .tracks.csv match this format, with the exception of the header row (I added a header row, but right now pixelav doesn't know what to do with a header row and will error if it's there). To prepare the tracklist, move to a data production Directory with the structure 
+```
+Data_Files (wherever you sim link points to, this is set up on Karri's Workstation)  
+|  
+->Data_Set_TIMESTAMP_BRIEFNAME  
+--|  
+--|->Track_Lists  
+--|->Parquet_Files  
+--|->PixelAV
+--| README
+```
+
+Make a dataset folder with this structure, and populate the Track_Lists. The tracklists follow the convention bib_mm_tracks_[idx].txt, or bib_mp_tracks_[idx].txt, or signal_tracks_[idx].txt. Easiest thing is to copy the .tracklistDF.csv into the Track_Lists folder, rename it signal_tracks_0.txt, and delete the header row. Also, the maiaCsvToParquet.py should actually make this kind of a structure now if makeTracklists is on. 
+Then you run launchdDataProduction.py on that tracklist with 
+```
+python launchDataProduction.py -c [number of parallel cpu workers] -bs [length of each file] -t [total length of all files] -flp 1 -tl /path/to/Data_Files/Data_Set_TIMESTAMP_BRIEFNAME/Track_Lists -p -sig > log_[date].txt
+#e.g.
+#python launchDataProduction.py -c 3 -bs 45 -t 45 -flp 1 -tl /local/d1/smartpixML/2026Datasets//Data_Files/Data_Set_20261030_experiments/Track_Lists -p -sig > log_1030_447PM.txt
+```
+
+
+
+TODO: There may need to be modifications to pixelav to include an index per cluster/simhit or phi information i.e. including the cellID field, that will require recompiling which allegedly should use the following command:
+```
+gcc ppixelav2_list_trkpy_n_2f_custom.c -o ./bin/ppixelav2_list_trkpy_n_2f_custom.exe -lm -O2
+#or perhaps
+gcc ppixelav2_custom.c -o ./bin/ppixelav2_custom.exe -lm -O2
+```
+
+
+### 4c visualization of things
 
 some prelimnary plots in tracklistEdmExploration.ipynb
 
